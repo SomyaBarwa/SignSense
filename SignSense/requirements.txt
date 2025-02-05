@@ -1,0 +1,11 @@
+torch 
+torchvision 
+torchaudio
+numpy
+pandas
+pillow
+matplotlib
+kiwisolver
+scipy
+opencv-python
+requests
