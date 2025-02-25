@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
 import cv2
-import os
 import numpy as np
 import torch
 from models.experimental import attempt_load
 from torchvision.ops import nms
 import pathlib
+import dlib
+from scipy.spatial import distance
 
 app = Flask(__name__)
 
@@ -13,35 +14,30 @@ app = Flask(__name__)
 def load_traffic_sign_model():
     temp = pathlib.PosixPath
     pathlib.PosixPath = pathlib.WindowsPath
-    print("Address: ", os.getcwd())
-    # Load YOLOv5 model from local file
-    model = attempt_load('models/best30.pt')  # Load model on CPU
+    model = attempt_load('models/best30.pt')  # Load model on gPU
     pathlib.PosixPath = temp
     return model
 
 model = load_traffic_sign_model()
-model.eval()
 
+# Initialize face detector and landmark predictor
+face_detector = dlib.get_frontal_face_detector()
+dlib_facelandmark = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
 
 @app.route('/')
 def home():
-    return "Upload an image file for traffic sign detection"
-
+    return "Upload an image file on /detect for traffic sign detection or use /drowsiness for drowsiness detection"
 
 @app.route('/detect', methods=['POST'])
 def detect():
-    # Receive image from request
     file = request.files['image']
     img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
     
-    # Preprocess and perform inference
     img_tensor = preprocess_image(img)
     with torch.no_grad():
         results = model(img_tensor)[0]
     
-    # Process results (same as your existing code)
     detections = process_results(results)
-    
     return jsonify(detections)
 
 def preprocess_image(img):
@@ -52,40 +48,27 @@ def preprocess_image(img):
     return img
 
 def process_results(results):
-    # Your existing code to process results
-    # Define confidence & NMS thresholds
     conf_threshold = 0.25  
     nms_threshold = 0.45   
 
-    # Reshape output (num_boxes, num_classes + 5)
-    results = results.squeeze(0)  # Remove batch dimension -> (25200, num_classes + 5)
+    results = results.squeeze(0)
+    conf_scores = results[:, 4]
+    valid_mask = conf_scores > conf_threshold
+    filtered_results = results[valid_mask]
 
-    # Extract bounding boxes, confidence scores, and class IDs correctly
-    conf_scores = results[:, 4]  # Confidence score for each box
-    valid_mask = conf_scores > conf_threshold  # Filter by confidence
-    filtered_results = results[valid_mask]  # Keep only valid detections
-
-    # If no detections remain, stop
     if filtered_results.shape[0] == 0:
-        print("No detections found.")
-        exit()
+        return []
 
-    # Extract boxes, scores, and class probabilities
-    boxes = filtered_results[:, :4]  # Bounding box coordinates
-    scores = filtered_results[:, 4]  # Object confidence scores
-    class_probs = filtered_results[:, 5:]  # Class confidence scores
+    boxes = filtered_results[:, :4]
+    scores = filtered_results[:, 4]
+    class_probs = filtered_results[:, 5:]
 
-    # Get predicted class IDs
-    class_ids = class_probs.argmax(dim=1)  # Get the class with highest probability
+    class_ids = class_probs.argmax(dim=1)
+    boxes[:, 2:] += boxes[:, :2]
 
-    # Convert [x, y, w, h] → [x1, y1, x2, y2]
-    boxes[:, 2:] += boxes[:, :2]  # Convert width & height to absolute coords
-
-    # Apply Non-Maximum Suppression (NMS)
     keep_indices = nms(boxes, scores, nms_threshold)
     boxes, scores, class_ids = boxes[keep_indices], scores[keep_indices], class_ids[keep_indices]
 
-    # Process detections
     detections = []
     for i in range(len(boxes)):
         x1, y1, x2, y2 = boxes[i]
@@ -101,10 +84,59 @@ def process_results(results):
             "class_id": int(cls),
             "class_name": model.names[int(cls)] if hasattr(model, 'names') else "Unknown"
         })
-
+   
     return detections
 
+@app.route('/drowsiness', methods=['POST'])
+def drowsiness_detection():
+    file = request.files['image']
+    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
+    
+    gray_scale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = face_detector(gray_scale)
 
+    drowsiness_results = []
+    for face in faces:
+        face_landmarks = dlib_facelandmark(gray_scale, face)
+        leftEye = []
+        rightEye = []
+
+        for n in range(36, 42):
+            x = face_landmarks.part(n).x
+            y = face_landmarks.part(n).y
+            rightEye.append((x, y))
+
+        for n in range(42, 48):
+            x = face_landmarks.part(n).x
+            y = face_landmarks.part(n).y
+            leftEye.append((x, y))
+
+        right_Eye = Detect_Eye(rightEye)
+        left_Eye = Detect_Eye(leftEye)
+        Eye_Rat = (left_Eye + right_Eye) / 2
+        Eye_Rat = round(Eye_Rat, 2)
+
+        if Eye_Rat < 0.25:
+            drowsiness_results.append({
+                "drowsiness_detected": True,
+                "eye_aspect_ratio": Eye_Rat,
+                "message": "Drowsiness Detected. Stop driving to prevent accidents."
+            })
+        else:
+            drowsiness_results.append({
+                "drowsiness_detected": False,
+                "eye_aspect_ratio": Eye_Rat,
+                "message": "No drowsiness detected."
+            })
+
+    return jsonify(drowsiness_results)
+
+def Detect_Eye(eye):
+    poi_A = distance.euclidean(eye[1], eye[5])
+    poi_B = distance.euclidean(eye[2], eye[4])
+    poi_C = distance.euclidean(eye[0], eye[3])
+    aspect_ratio_Eye = (poi_A + poi_B) / (2 * poi_C)
+    return aspect_ratio_Eye
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

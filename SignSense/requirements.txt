@@ -1,7 +1,7 @@
 torch 
 torchvision 
 torchaudio
-numpy
+numpy==1.26.0
 pandas
 pillow
 matplotlib
@@ -9,3 +9,6 @@ kiwisolver
 scipy
 opencv-python
 requests
+ultralytics
+flask
+dlib
