@@ -41,7 +41,7 @@ def detect():
     return jsonify(detections)
 
 def preprocess_image(img):
-    img = cv2.resize(img, (640, 640))
+    img = cv2.resize(img, (1280, 1280))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img / 255.0
     img = torch.from_numpy(img).float().permute(2, 0, 1).unsqueeze(0)
@@ -49,7 +49,7 @@ def preprocess_image(img):
 
 def process_results(results):
     conf_threshold = 0.25  
-    nms_threshold = 0.45   
+    nms_threshold = 0.4   
 
     results = results.squeeze(0)
     conf_scores = results[:, 4]
