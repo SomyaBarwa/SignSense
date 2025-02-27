@@ -56,9 +56,56 @@ def preprocess_image(img):
     img = torch.from_numpy(img).float().permute(2, 0, 1).unsqueeze(0)
     return img
 
+
+# Only return the highest confidence detection
+# def process_results(results):
+#     conf_threshold = 0.25  
+#     nms_threshold = 0.4    
+
+#     results = results.squeeze(0)
+#     conf_scores = results[:, 4]
+#     valid_mask = conf_scores > conf_threshold
+#     filtered_results = results[valid_mask]
+
+#     if filtered_results.shape[0] == 0:
+#         return []
+
+#     boxes = filtered_results[:, :4]
+#     scores = filtered_results[:, 4]
+#     class_probs = filtered_results[:, 5:]
+
+#     class_ids = class_probs.argmax(dim=1)
+#     boxes[:, 2:] += boxes[:, :2]
+
+#     keep_indices = nms(boxes, scores, nms_threshold)
+#     boxes, scores, class_ids = boxes[keep_indices], scores[keep_indices], class_ids[keep_indices]
+
+#     if len(scores) == 0:
+#         return []
+
+#     max_conf_index = scores.argmax().item()
+
+#     x1, y1, x2, y2 = boxes[max_conf_index]
+#     conf = scores[max_conf_index].item()
+#     cls = int(class_ids[max_conf_index])
+
+#     best_detection = {
+#         "x1": int(x1),
+#         "y1": int(y1),
+#         "x2": int(x2),
+#         "y2": int(y2),
+#         "confidence": conf,
+#         "class_id": cls,
+#         "class_name": model.names[cls] if hasattr(model, 'names') else "Unknown"
+#     }
+
+#     return [best_detection]  # Return as a list for JSON format
+
+
+# Return the highest and second-highest confidence detections with different class_ids
 def process_results(results):
-    conf_threshold = 0.25  
-    nms_threshold = 0.4   
+    conf_threshold = 0.3 
+    nms_threshold = 0.4    
 
     results = results.squeeze(0)
     conf_scores = results[:, 4]
@@ -78,23 +125,45 @@ def process_results(results):
     keep_indices = nms(boxes, scores, nms_threshold)
     boxes, scores, class_ids = boxes[keep_indices], scores[keep_indices], class_ids[keep_indices]
 
-    detections = []
-    for i in range(len(boxes)):
-        x1, y1, x2, y2 = boxes[i]
-        conf = scores[i]
-        cls = class_ids[i]
+    if len(scores) == 0:
+        return []
 
-        detections.append({
-            "x1": int(x1),
-            "y1": int(y1),
-            "x2": int(x2),
-            "y2": int(y2),
-            "confidence": float(conf),
-            "class_id": int(cls),
-            "class_name": model.names[int(cls)] if hasattr(model, 'names') else "Unknown"
-        })
-   
+    sorted_indices = scores.argsort(descending=True)
+    max_conf_index = sorted_indices[0].item()  
+
+    best_detection = {
+        "x1": int(boxes[max_conf_index][0]),
+        "y1": int(boxes[max_conf_index][1]),
+        "x2": int(boxes[max_conf_index][2]),
+        "y2": int(boxes[max_conf_index][3]),
+        "confidence": scores[max_conf_index].item(),
+        "class_id": int(class_ids[max_conf_index]),
+        "class_name": model.names[int(class_ids[max_conf_index])] if hasattr(model, 'names') else "Unknown"
+    }
+
+    detections = [best_detection]  # Store the best detection
+    best_class_id = int(class_ids[max_conf_index])
+
+    for i in range(1, len(scores)):  # Find the second best detection with a different class_id
+        second_conf_index = sorted_indices[i].item()
+        second_class_id = int(class_ids[second_conf_index])
+        
+        if second_class_id != best_class_id and scores[second_conf_index].item() > 0.5:
+            second_best_detection = {
+                "x1": int(boxes[second_conf_index][0]),
+                "y1": int(boxes[second_conf_index][1]),
+                "x2": int(boxes[second_conf_index][2]),
+                "y2": int(boxes[second_conf_index][3]),
+                "confidence": scores[second_conf_index].item(),
+                "class_id": second_class_id,
+                "class_name": model.names[second_class_id] if hasattr(model, 'names') else "Unknown"
+            }
+            detections.append(second_best_detection)
+            break  # Stop after finding one valid second detection
+
     return detections
+
+
 
 @app.route('/drowsiness', methods=['POST'])
 def drowsiness_detection():
