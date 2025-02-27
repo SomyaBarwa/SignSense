@@ -10,11 +10,20 @@ from scipy.spatial import distance
 
 app = Flask(__name__)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+use_half = torch.cuda.is_available()  # Use FP16 only if CUDA is available
+
+
 # Load YOLOv5 model
 def load_traffic_sign_model():
     temp = pathlib.PosixPath
     pathlib.PosixPath = pathlib.WindowsPath
     model = attempt_load('models/best30.pt')  # Load model on gPU
+    model.to(device) # Move model to device and set it to eval mode
+
+    if use_half:  # Convert to FP16 if using GPU
+        model.half()
+
     pathlib.PosixPath = temp
     return model
 
