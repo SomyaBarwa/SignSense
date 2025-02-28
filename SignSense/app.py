@@ -104,8 +104,11 @@ def preprocess_image(img):
 
 # Return the highest and second-highest confidence detections with different class_ids
 def process_results(results):
-    conf_threshold = 0.35 
+    conf_threshold = 0.5  
     nms_threshold = 0.4    
+    allowed_classes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 17, 18, 19, 
+                       20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36, 
+                       37, 38, 39, 40, 41, 42}
 
     results = results.squeeze(0)
     conf_scores = results[:, 4]
@@ -122,11 +125,20 @@ def process_results(results):
     class_ids = class_probs.argmax(dim=1)
     boxes[:, 2:] += boxes[:, :2]
 
+    # Filter out only allowed class IDs
+    allowed_mask = torch.tensor([cls.item() in allowed_classes for cls in class_ids])
+    if allowed_mask.sum() == 0:
+        return [{"message": "No valid traffic signs detected."}]
+
+    boxes = boxes[allowed_mask]
+    scores = scores[allowed_mask]
+    class_ids = class_ids[allowed_mask]
+
     keep_indices = nms(boxes, scores, nms_threshold)
     boxes, scores, class_ids = boxes[keep_indices], scores[keep_indices], class_ids[keep_indices]
 
     if len(scores) == 0:
-        return []
+        return [{"message": "No valid traffic signs detected after NMS."}]
 
     sorted_indices = scores.argsort(descending=True)
     max_conf_index = sorted_indices[0].item()  
@@ -148,7 +160,7 @@ def process_results(results):
         second_conf_index = sorted_indices[i].item()
         second_class_id = int(class_ids[second_conf_index])
         
-        if second_class_id != best_class_id and scores[second_conf_index].item() > 0.5:
+        if second_class_id != best_class_id and scores[second_conf_index].item() > (conf_threshold+0.1):
             second_best_detection = {
                 "x1": int(boxes[second_conf_index][0]),
                 "y1": int(boxes[second_conf_index][1]),
