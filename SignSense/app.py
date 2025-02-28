@@ -104,7 +104,7 @@ def preprocess_image(img):
 
 # Return the highest and second-highest confidence detections with different class_ids
 def process_results(results):
-    conf_threshold = 0.3 
+    conf_threshold = 0.35 
     nms_threshold = 0.4    
 
     results = results.squeeze(0)
@@ -113,7 +113,7 @@ def process_results(results):
     filtered_results = results[valid_mask]
 
     if filtered_results.shape[0] == 0:
-        return []
+        return [{"message": "No traffic signs detected."}]
 
     boxes = filtered_results[:, :4]
     scores = filtered_results[:, 4]
